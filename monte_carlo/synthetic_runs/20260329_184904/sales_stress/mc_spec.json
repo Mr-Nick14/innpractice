@@ -1,0 +1,17 @@
+{
+  "key_rate_shift_min": 0.0,
+  "key_rate_shift_max": 0.04,
+  "price_level_min": 0.88,
+  "price_level_max": 1.0,
+  "sales_level_min": 0.75,
+  "sales_level_max": 1.0,
+  "project_price_premium_min": 0.0,
+  "project_price_premium_max": 0.0,
+  "rvz_delay_choices": [
+    0,
+    1,
+    2
+  ],
+  "local_price_shock_std": 0.015,
+  "local_sales_shock_std": 0.07
+}

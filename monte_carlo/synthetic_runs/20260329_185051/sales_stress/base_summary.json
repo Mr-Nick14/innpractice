@@ -1,0 +1,22 @@
+{
+  "project_name": "sales_stress",
+  "scenario_name": "base",
+  "total_revenue": 1504676800.0,
+  "total_costs_excl_financing": 1397524050.6000001,
+  "total_interest_and_fees": 68468584.16290739,
+  "total_debt_service_for_ratio": 1218930169.2829075,
+  "total_cfads": 107152749.3999998,
+  "total_net_cash_flow": 130621700.11709237,
+  "ending_escrow_balance": 0.0,
+  "ending_project_cash_balance": 130621700.11709234,
+  "peak_debt": 1150461585.1200001,
+  "ending_debt": 0.0,
+  "min_dscr": 1.1066666402327765,
+  "min_iscr": 120.74630342215455,
+  "max_liquidity_shortfall": 37265615.5265875,
+  "final_effective_rate_annual": 0.04249583126115246,
+  "collateral_value_net": 1244656000.0,
+  "collateral_coverage_ratio": 1.0211052539065686,
+  "repaid_at_rvz": true,
+  "debt_fully_repaid": true
+}

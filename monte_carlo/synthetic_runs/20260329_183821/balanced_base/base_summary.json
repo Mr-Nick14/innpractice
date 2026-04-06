@@ -1,0 +1,22 @@
+{
+  "project_name": "balanced_base",
+  "scenario_name": "base",
+  "total_revenue": 1393741887.84,
+  "total_costs_excl_financing": 1036576630.27675,
+  "total_interest_and_fees": 51727611.82172807,
+  "total_debt_service_for_ratio": 812563473.8217281,
+  "total_cfads": 357165257.5632502,
+  "total_net_cash_flow": 366238783.74152195,
+  "ending_escrow_balance": 0.0,
+  "ending_project_cash_balance": 366238783.7415221,
+  "peak_debt": 760835862.0,
+  "ending_debt": 0.0,
+  "min_dscr": -88.48101155259597,
+  "min_iscr": -190.3558508636411,
+  "max_liquidity_shortfall": 131500238.88522825,
+  "final_effective_rate_annual": 0.03920878238215003,
+  "collateral_value_net": 1306888800.0,
+  "collateral_coverage_ratio": 1.6083528759338794,
+  "repaid_at_rvz": true,
+  "debt_fully_repaid": true
+}
