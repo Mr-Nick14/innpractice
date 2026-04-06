@@ -1,0 +1,13 @@
+{
+  "runs": 120,
+  "mean_min_dscr": 1.6355408201291373,
+  "p05_min_dscr": 1.5308058685865797,
+  "p50_min_dscr": 1.6393429341071075,
+  "p95_min_dscr": 1.7378348690318435,
+  "probability_dscr_below_1_0": 0.0,
+  "probability_dscr_below_1_2": 0.0,
+  "mean_peak_debt": 760835862.0,
+  "mean_ending_debt": 0.0,
+  "mean_final_effective_rate_annual": 0.03876964879523923,
+  "mean_collateral_coverage_ratio": 1.6025743570888102
+}

@@ -1,0 +1,22 @@
+{
+  "project_name": "fast_sales_upside",
+  "scenario_name": "base",
+  "total_revenue": 1478526000.0,
+  "total_costs_excl_financing": 1030916057.75,
+  "total_interest_and_fees": 44057397.615617305,
+  "total_debt_service_for_ratio": 785558379.6156173,
+  "total_cfads": 447609942.25,
+  "total_net_cash_flow": 462808562.63438267,
+  "ending_escrow_balance": 0.0,
+  "ending_project_cash_balance": 462808562.63438267,
+  "peak_debt": 741500982.0,
+  "ending_debt": 0.0,
+  "min_dscr": -95.91059369497808,
+  "min_iscr": -213.11155109311255,
+  "max_liquidity_shortfall": 117835161.03211743,
+  "final_effective_rate_annual": 0.03419363030411296,
+  "collateral_value_net": 1400238000.0,
+  "collateral_coverage_ratio": 1.7824747801495702,
+  "repaid_at_rvz": true,
+  "debt_fully_repaid": true
+}
