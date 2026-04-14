@@ -1,0 +1,13 @@
+.git/
+.pytest_cache/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+**/*.ipynb
+monte_carlo/synthetic_runs/
+tests/test-results.xml
+*.pdf
+*.docx
+*.xlsx
