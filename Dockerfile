@@ -8,10 +8,10 @@ WORKDIR /app
 
 RUN mkdir -p /app/monte_carlo /app/tests /artifacts
 
-COPY requirements.txt /tmp/requirements.txt
+COPY requirements_test.txt /tmp/requirements_test.txt
 
 RUN python -m pip install --upgrade pip \
-    && python -m pip install --no-cache-dir -r /tmp/requirements.txt
+    && python -m pip install --no-cache-dir -r /tmp/requirements_test.txt
 
 COPY monte_carlo/mc_cashflow_engine.py /app/monte_carlo/mc_cashflow_engine.py
 COPY tests /app/tests
