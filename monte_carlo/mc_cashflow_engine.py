@@ -49,6 +49,8 @@ from typing import Dict, Iterable, List, Optional, Sequence
 import math
 import random
 
+from .mc_stochastic_drivers import DriverScenario, DriverScenarioFactory, RuntimeCostAdapter
+
 
 # ---------------------------------------------------------------------------
 # Utility helpers
@@ -238,9 +240,12 @@ class LocalScenarioPath:
 class Scenario:
     global_state: GlobalScenario = field(default_factory=GlobalScenario)
     local_path: LocalScenarioPath = field(default_factory=LocalScenarioPath)
+    driver_scenario: Optional[DriverScenario] = None
 
     def validate(self, horizon: int) -> None:
         self.local_path.validate(horizon)
+        if self.driver_scenario is not None:
+            self.driver_scenario.validate(horizon)
 
 
 @dataclass(frozen=True)
@@ -307,6 +312,39 @@ class QuarterState:
     dscr: float
     iscr: float
 
+    # Hedonic price diagnostics
+    market_log_price: float = 0.0
+    geo_score: float = 0.0
+    quality_score: float = 0.0
+    project_premium_component: float = 0.0
+    lgb_boost: float = 0.0
+    final_log_price_sqm: float = 0.0
+
+    # Driver diagnostics
+    market_quarterly_shock: float = 0.0
+    project_premium_base: float = 0.0
+    project_premium_path_shift: float = 0.0
+    global_project_premium: float = 0.0
+    final_price_residual_shock: float = 0.0
+    residual_ml_boost: float = 0.0
+
+    baseline_sales_mu: float = 0.0
+    demand_shift: float = 0.0
+    seasonal_sales_shock: float = 0.0
+    delay_penalty: float = 0.0
+    final_sales_mu: float = 0.0
+    realized_sales_count: int = 0
+
+    cost_index: float = 1.0
+    project_overrun: float = 1.0
+    quarterly_cost_shock: float = 0.0
+    effective_cost_multiplier: float = 1.0
+
+    effective_key_rate_annual: float = 0.0
+    spread_shock_annual: float = 0.0
+    effective_spread_annual: float = 0.0
+    effective_full_rate_annual: float = 0.0
+
     # Diagnostics
     notes: Dict[str, float] = field(default_factory=dict)
 
@@ -333,6 +371,7 @@ class PathSummary:
     collateral_coverage_ratio: float
     repaid_at_rvz: bool
     debt_fully_repaid: bool
+    driver_summary: Dict[str, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -358,6 +397,15 @@ class PriceModel(ABC):
     ) -> float:
         raise NotImplementedError
 
+    def get_last_components(self) -> Dict[str, float]:
+        """
+        Optional diagnostics hook.
+
+        Advanced price models can expose their latest decomposition components
+        (market/geo/quality/etc.) so the engine can persist them to QuarterState.
+        """
+        return {}
+
 
 class SalesModel(ABC):
     @abstractmethod
@@ -369,8 +417,14 @@ class SalesModel(ABC):
         scenario: Scenario,
         remaining_lots: int,
         previous_state: Optional[QuarterState],
+        current_price_sqm: Optional[float] = None,
+        market_price_sqm: Optional[float] = None,
     ) -> int:
         raise NotImplementedError
+
+    def get_last_components(self) -> Dict[str, float]:
+        """Optional diagnostics hook for sales models."""
+        return {}
 
 
 @dataclass
@@ -385,6 +439,8 @@ class StubPriceModel(PriceModel):
     - applies local per-quarter multiplicative shocks
     """
 
+    _last_components: Dict[str, float] = field(default_factory=dict, init=False)
+
     def predict_price_sqm(
         self,
         *,
@@ -393,11 +449,46 @@ class StubPriceModel(PriceModel):
         scenario: Scenario,
         previous_state: Optional[QuarterState],
     ) -> float:
-        base = config.initial_price_sqm
-        base *= scenario.global_state.price_level_multiplier
+        market_price = config.initial_price_sqm
+        market_price *= scenario.global_state.price_level_multiplier
+        driver = scenario.driver_scenario
+        market_driver_active = bool(driver is not None and driver.market_modulation_enabled())
+        market_quarterly_shock = float(scenario.local_path.price_shock(ctx.index))
+        project_premium_path_shift = 0.0
+        final_price_residual_shock = 0.0
+        if market_driver_active and driver is not None:
+            market_price *= math.exp(driver.market_log_price_modulation(ctx.index))
+            market_quarterly_shock += driver.quarter(ctx.index).market_quarterly_shock_log
+            project_premium_path_shift = driver.path.project_premium_shift_log
+            final_price_residual_shock = driver.price_residual_shock(ctx.index)
+        market_price *= (1.0 + scenario.local_path.price_shock(ctx.index))
+
+        base = market_price
         base *= (1.0 + scenario.global_state.project_price_premium)
-        base *= (1.0 + scenario.local_path.price_shock(ctx.index))
+        driver = scenario.driver_scenario
+        if driver is not None:
+            base *= math.exp(driver.path.project_premium_shift_log)
+            base *= math.exp(driver.price_residual_shock(ctx.index))
+        final_log = math.log(max(base, 1e-9))
+        self._last_components = {
+            "market_log_price": float(math.log(max(market_price, 1e-9))),
+            "market_quarterly_shock": float(market_quarterly_shock),
+            "project_premium_base": float(scenario.global_state.project_price_premium),
+            "project_premium_path_shift": float(project_premium_path_shift),
+            "global_project_premium": float(math.log1p(max(scenario.global_state.project_price_premium, -0.95))),
+            "project_premium": float(scenario.global_state.project_price_premium),
+            "project_premium_component": float(scenario.global_state.project_price_premium + project_premium_path_shift),
+            "lgb_boost": 0.0,
+            "residual_ml_boost": 0.0,
+            "final_price_residual_shock": float(final_price_residual_shock),
+            "final_log_price_sqm": float(final_log),
+            "final_price_sqm": float(base),
+            "market_price_sqm": float(market_price),
+        }
         return max(base, 0.0)
+
+    def get_last_components(self) -> Dict[str, float]:
+        return dict(self._last_components)
 
 
 @dataclass
@@ -412,6 +503,7 @@ class StubSalesModel(SalesModel):
     """
 
     quarterly_sales_share: Sequence[float]
+    _last_components: Dict[str, float] = field(default_factory=dict, init=False)
 
     def predict_sold_lots(
         self,
@@ -421,6 +513,8 @@ class StubSalesModel(SalesModel):
         scenario: Scenario,
         remaining_lots: int,
         previous_state: Optional[QuarterState],
+        current_price_sqm: Optional[float] = None,
+        market_price_sqm: Optional[float] = None,
     ) -> int:
         if remaining_lots <= 0:
             return 0
@@ -430,11 +524,28 @@ class StubSalesModel(SalesModel):
             return 0
         share = self.quarterly_sales_share[ctx.index]
         share *= scenario.global_state.sales_level_multiplier
+        driver = scenario.driver_scenario
+        driver_shift = 0.0
+        if driver is not None:
+            driver_shift = driver.sales_log_multiplier(ctx.index)
+            share *= math.exp(driver_shift)
         share *= (1.0 + scenario.local_path.sales_shock(ctx.index))
         share = max(share, 0.0)
         expected = config.initial_remaining_lots * share
         sold = int(round(expected))
+        self._last_components = {
+            "baseline_sales_share": float(self.quarterly_sales_share[ctx.index]),
+            "baseline_sales_mu": float(config.initial_remaining_lots * self.quarterly_sales_share[ctx.index]),
+            "demand_shift": float(driver.path.demand_shift_log if driver is not None else 0.0),
+            "seasonal_sales_shock": float(driver.quarter(ctx.index).seasonal_sales_shock_log if driver is not None else 0.0),
+            "delay_penalty": float(driver.delay_penalty_log() if driver is not None else 0.0),
+            "final_sales_mu": float(expected),
+            "realized_sales_count": float(sold),
+        }
         return max(0, min(remaining_lots, sold))
+
+    def get_last_components(self) -> Dict[str, float]:
+        return dict(self._last_components)
 
 
 # ---------------------------------------------------------------------------
@@ -521,6 +632,7 @@ class FittedNBFeatureSalesModel(SalesModel):
     market_price_sqm: float
     stochastic: bool = True
     seed: Optional[int] = None
+    _last_components: Dict[str, float] = field(default_factory=dict, init=False)
 
     def __post_init__(self) -> None:
         if len(self.coef) != len(self.feature_names):
@@ -625,6 +737,7 @@ class FittedNBFeatureSalesModel(SalesModel):
         config: "ProjectConfig",
         remaining_lots: int,
         price_sqm: float,
+        market_price_sqm: Optional[float] = None,
     ) -> List[float]:
         """
         Build the feature vector in the same order as self.feature_names.
@@ -632,7 +745,7 @@ class FittedNBFeatureSalesModel(SalesModel):
         price_sqm is the current quarter's price (taken from previous_state
         or config.initial_price_sqm if first quarter).
         """
-        market = max(self.market_price_sqm, 1.0)
+        market = max(float(market_price_sqm) if market_price_sqm is not None else self.market_price_sqm, 1.0)
         raw: Dict[str, float] = {
             "const": 1.0,
             "project_age_q": self._scale("project_age_q", float(ctx.index)),
@@ -705,29 +818,64 @@ class FittedNBFeatureSalesModel(SalesModel):
         scenario: "Scenario",
         remaining_lots: int,
         previous_state: Optional["QuarterState"],
+        current_price_sqm: Optional[float] = None,
+        market_price_sqm: Optional[float] = None,
     ) -> int:
         if remaining_lots <= 0 or ctx.is_pre_rns:
+            self._last_components = {
+                "baseline_sales_mu": 0.0,
+                "demand_shift": 0.0,
+                "seasonal_sales_shock": 0.0,
+                "delay_penalty": 0.0,
+                "final_sales_mu": 0.0,
+                "realized_sales_count": 0.0,
+            }
             return 0
 
-        # Use previous quarter's price as proxy for current (one-quarter lag).
-        # First quarter falls back to config.initial_price_sqm.
-        base_price = previous_state.price_sqm if previous_state else config.initial_price_sqm
-        price_sqm = base_price * scenario.global_state.price_level_multiplier
+        # Prefer runtime project price from the active price model.
+        # Fallback to the legacy proxy path for backward compatibility.
+        if current_price_sqm is not None:
+            price_sqm = float(current_price_sqm)
+        else:
+            base_price = previous_state.price_sqm if previous_state else config.initial_price_sqm
+            price_sqm = base_price * scenario.global_state.price_level_multiplier
 
+        driver = scenario.driver_scenario
         x = self._build_feature_vector(
             ctx=ctx,
             config=config,
             remaining_lots=remaining_lots,
             price_sqm=price_sqm,
+            market_price_sqm=market_price_sqm,
         )
         eta = sum(c * xv for c, xv in zip(self.coef, x))
+        baseline_eta = eta
         # Apply scenario sales-level multiplier in log-space
         eta += math.log(max(scenario.global_state.sales_level_multiplier, 1e-9))
         eta += scenario.local_path.sales_shock(ctx.index)
+        demand_shift = 0.0
+        seasonal_sales_shock = 0.0
+        delay_penalty = 0.0
+        if driver is not None:
+            demand_shift = driver.path.demand_shift_log
+            seasonal_sales_shock = driver.quarter(ctx.index).seasonal_sales_shock_log
+            delay_penalty = driver.delay_penalty_log()
+            eta += demand_shift + seasonal_sales_shock - delay_penalty
         mu = math.exp(max(-15.0, min(15.0, eta)))
 
         sold = self._nb_sample(mu) if self.stochastic else int(round(mu))
+        self._last_components = {
+            "baseline_sales_mu": float(math.exp(max(-15.0, min(15.0, baseline_eta)))),
+            "demand_shift": float(demand_shift),
+            "seasonal_sales_shock": float(seasonal_sales_shock),
+            "delay_penalty": float(delay_penalty),
+            "final_sales_mu": float(mu),
+            "realized_sales_count": float(sold),
+        }
         return max(0, min(remaining_lots, sold))
+
+    def get_last_components(self) -> Dict[str, float]:
+        return dict(self._last_components)
 
 
 # ---------------------------------------------------------------------------
@@ -799,6 +947,12 @@ class OnePathCashflowEngine:
     def run(self, scenario: Optional[Scenario] = None) -> PathResult:
         scenario = scenario or Scenario()
         scenario.validate(self.config.horizon_quarters)
+        driver = scenario.driver_scenario
+        effective_cost_schedule = RuntimeCostAdapter.build_effective_schedule(
+            base_schedule=self.cost_schedule,
+            horizon=self.config.horizon_quarters,
+            scenario=scenario,
+        )
 
         states: List[QuarterState] = []
         quarter_id = QuarterId(self.config.start_year, self.config.start_quarter)
@@ -811,9 +965,10 @@ class OnePathCashflowEngine:
         repaid_at_rvz = False
         profit_before_tax_accum = 0.0
 
+        rvz_delay = scenario.global_state.rvz_delay_quarters + (driver.path.rvz_delay_quarters if driver is not None else 0)
         rvz_effective_index = min(
             self.config.horizon_quarters - 1,
-            self.config.rvz_quarter_index + scenario.global_state.rvz_delay_quarters,
+            self.config.rvz_quarter_index + rvz_delay,
         )
 
         for idx in range(self.config.horizon_quarters):
@@ -833,6 +988,25 @@ class OnePathCashflowEngine:
                 scenario=scenario,
                 previous_state=prev_state,
             )
+            price_components = self.price_model.get_last_components() if hasattr(self.price_model, "get_last_components") else {}
+            market_log_price = float(price_components.get("market_log_price", math.log(max(price_sqm, 1.0))))
+            market_price_sqm_runtime = float(price_components.get("market_price_sqm", math.exp(market_log_price)))
+            geo_score_component = float(price_components.get("geo_score", 0.0))
+            quality_score_component = float(price_components.get("quality_score", 0.0))
+            project_premium_base = float(price_components.get("project_premium_base", price_components.get("project_premium", 0.0)))
+            project_premium_path_shift = float(price_components.get("project_premium_path_shift", 0.0))
+            global_project_premium = float(price_components.get("global_project_premium", 0.0))
+            project_premium_component = float(
+                price_components.get(
+                    "project_premium_component",
+                    project_premium_base + project_premium_path_shift + global_project_premium,
+                )
+            )
+            lgb_boost_component = float(price_components.get("lgb_boost", 0.0))
+            residual_ml_boost = float(price_components.get("residual_ml_boost", lgb_boost_component))
+            final_price_residual_shock = float(price_components.get("final_price_residual_shock", 0.0))
+            market_quarterly_shock = float(price_components.get("market_quarterly_shock", 0.0))
+            final_log_price_sqm = float(price_components.get("final_log_price_sqm", math.log(max(price_sqm, 1.0))))
 
             sold_lots = self.sales_model.predict_sold_lots(
                 ctx=ctx,
@@ -840,7 +1014,17 @@ class OnePathCashflowEngine:
                 scenario=scenario,
                 remaining_lots=remaining_lots,
                 previous_state=prev_state,
+                current_price_sqm=price_sqm,
+                market_price_sqm=market_price_sqm_runtime,
             )
+            sales_components = self.sales_model.get_last_components() if hasattr(self.sales_model, "get_last_components") else {}
+            baseline_sales_mu = float(sales_components.get("baseline_sales_mu", 0.0))
+            demand_shift = float(sales_components.get("demand_shift", 0.0))
+            seasonal_sales_shock = float(sales_components.get("seasonal_sales_shock", 0.0))
+            delay_penalty = float(sales_components.get("delay_penalty", 0.0))
+            final_sales_mu = float(sales_components.get("final_sales_mu", 0.0))
+            realized_sales_count = int(sales_components.get("realized_sales_count", sold_lots))
+
             sold_lots = min(sold_lots, remaining_lots)
             sold_area = sold_lots * self.config.avg_unit_area_sqm
             revenue = sold_area * price_sqm
@@ -870,14 +1054,19 @@ class OnePathCashflowEngine:
 
             project_cash_balance += project_cash_inflow
 
-            land_cost = self.cost_schedule.land(idx)
-            smr_cost = self.cost_schedule.smr(idx)
-            design_cost = self.cost_schedule.design(idx)
-            other_opex = self.cost_schedule.other_opex(idx)
-            post_completion_cost = self.cost_schedule.post_completion(idx)
+            land_cost = effective_cost_schedule.land(idx)
+            smr_cost = effective_cost_schedule.smr(idx)
+            design_cost = effective_cost_schedule.design(idx)
+            other_opex = effective_cost_schedule.other_opex(idx)
+            post_completion_cost = effective_cost_schedule.post_completion(idx)
+            cost_index = float(effective_cost_schedule.cost_index_by_quarter[idx]) if effective_cost_schedule.cost_index_by_quarter else 1.0
+            project_overrun = float(effective_cost_schedule.project_overrun_multiplier)
+            quarterly_cost_shock = (
+                float(effective_cost_schedule.quarterly_cost_shocks[idx]) if effective_cost_schedule.quarterly_cost_shocks else 0.0
+            )
             marketing_cost = revenue * self.config.marketing_cost_ratio
-            property_tax = self.cost_schedule.property_tax(idx)
-            vat = self.cost_schedule.vat(idx)
+            property_tax = effective_cost_schedule.property_tax(idx)
+            vat = effective_cost_schedule.vat(idx)
 
             pre_tax_profit_proxy = revenue - land_cost - smr_cost - design_cost - marketing_cost - other_opex
             profit_before_tax_accum += pre_tax_profit_proxy
@@ -903,13 +1092,24 @@ class OnePathCashflowEngine:
             operating_debt_draw = min(operating_funding_gap, max(debt_limit - debt_outstanding, 0.0))
             project_cash_balance = project_cash_balance + operating_debt_draw - total_costs_excl_financing
 
-            current_key_rate = self.config.key_rate_annual + scenario.global_state.key_rate_shift_annual
-            spread = (
+            base_key_rate = self.config.key_rate_annual + scenario.global_state.key_rate_shift_annual
+            current_key_rate = (
+                driver.effective_key_rate_annual(base_key_rate_annual=base_key_rate, idx=idx)
+                if driver is not None
+                else base_key_rate
+            )
+            base_spread = (
                 self.config.full_rate_spread_before_rvz
                 if idx <= rvz_effective_index
                 else self.config.full_rate_spread_after_rvz
             )
-            full_rate_annual = current_key_rate + spread
+            effective_spread = (
+                driver.effective_spread_annual(base_spread_annual=base_spread, idx=idx)
+                if driver is not None
+                else base_spread
+            )
+            spread_shock_annual = effective_spread - base_spread
+            full_rate_annual = current_key_rate + effective_spread
 
             debt_after_operating_draw = debt_outstanding + operating_debt_draw
             escrow_coverage_ratio = (
@@ -1005,14 +1205,64 @@ class OnePathCashflowEngine:
                     debt_service_for_ratio=debt_service_for_ratio,
                     dscr=dscr,
                     iscr=iscr,
+                    market_log_price=market_log_price,
+                    geo_score=geo_score_component,
+                    quality_score=quality_score_component,
+                    project_premium_component=project_premium_component,
+                    lgb_boost=lgb_boost_component,
+                    final_log_price_sqm=final_log_price_sqm,
+                    market_quarterly_shock=market_quarterly_shock,
+                    project_premium_base=project_premium_base,
+                    project_premium_path_shift=project_premium_path_shift,
+                    global_project_premium=global_project_premium,
+                    final_price_residual_shock=final_price_residual_shock,
+                    residual_ml_boost=residual_ml_boost,
+                    baseline_sales_mu=baseline_sales_mu,
+                    demand_shift=demand_shift,
+                    seasonal_sales_shock=seasonal_sales_shock,
+                    delay_penalty=delay_penalty,
+                    final_sales_mu=final_sales_mu,
+                    realized_sales_count=realized_sales_count,
+                    cost_index=cost_index,
+                    project_overrun=project_overrun,
+                    quarterly_cost_shock=quarterly_cost_shock,
+                    effective_cost_multiplier=cost_index,
+                    effective_key_rate_annual=current_key_rate,
+                    spread_shock_annual=spread_shock_annual,
+                    effective_spread_annual=effective_spread,
+                    effective_full_rate_annual=full_rate_annual,
                     notes={
                         "current_key_rate": current_key_rate,
+                        "effective_spread_annual": effective_spread,
+                        "spread_shock_annual": spread_shock_annual,
                         "profit_before_tax_accum": profit_before_tax_accum,
                         "cash_before_costs": cash_before_costs,
                         "operating_funding_gap": operating_funding_gap,
                         "financing_funding_gap": financing_funding_gap,
                         "debt_before_repayment": debt_before_repayment,
                         "liquidity_shortfall": liquidity_shortfall,
+                        "market_quarterly_shock": market_quarterly_shock,
+                        "market_regime_shift_log": float(driver.path.market_regime_shift_log if driver is not None else 0.0),
+                        "macro_shift_annual": float(driver.path.macro_shift_annual if driver is not None else 0.0),
+                        "project_premium_base": project_premium_base,
+                        "project_premium_path_shift": project_premium_path_shift,
+                        "global_project_premium": global_project_premium,
+                        "final_price_residual_shock": final_price_residual_shock,
+                        "baseline_sales_mu": baseline_sales_mu,
+                        "demand_shift": demand_shift,
+                        "seasonal_sales_shock": seasonal_sales_shock,
+                        "delay_penalty": delay_penalty,
+                        "final_sales_mu": final_sales_mu,
+                        "realized_sales_count": float(realized_sales_count),
+                        "cost_index": cost_index,
+                        "project_overrun": project_overrun,
+                        "quarterly_cost_shock": quarterly_cost_shock,
+                        "effective_cost_multiplier": cost_index,
+                        "rvz_delay_quarters": float(rvz_delay),
+                        "cost_timing_shift_quarters": float(effective_cost_schedule.cost_timing_shift_quarters),
+                        "knn_mean_1000m": float(price_components.get("knn_mean_1000m", 0.0)),
+                        "h3_enc_r8": float(price_components.get("h3_enc_r8", 0.0)),
+                        "lgb_missing_feature_count": float(price_components.get("lgb_missing_feature_count", 0.0)),
                     },
                 )
             )
@@ -1035,7 +1285,7 @@ class OnePathCashflowEngine:
 
         summary = PathSummary(
             project_name=self.config.name,
-            scenario_name=scenario.global_state.name,
+            scenario_name=driver.name if driver is not None else scenario.global_state.name,
             total_revenue=sum(s.revenue for s in states),
             total_costs_excl_financing=sum(s.total_costs_excl_financing for s in states),
             total_interest_and_fees=sum(s.total_debt_service_cost for s in states),
@@ -1054,6 +1304,7 @@ class OnePathCashflowEngine:
             collateral_coverage_ratio=collateral_coverage_ratio,
             repaid_at_rvz=repaid_at_rvz,
             debt_fully_repaid=(states[-1].debt_outstanding_end <= 1e-6 if states else True),
+            driver_summary=driver.summary() if driver is not None else {},
         )
         return PathResult(states=states, summary=summary)
 
@@ -1089,7 +1340,14 @@ class MonteCarloRunner:
         self.engine = engine
         self.scenario_factory = scenario_factory
 
-    def run_random(self, *, n_runs: int, spec: RandomScenarioSpec, name_prefix: str = "mc") -> MonteCarloResult:
+    def run_random(
+        self,
+        *,
+        n_runs: int,
+        spec: RandomScenarioSpec,
+        name_prefix: str = "mc",
+        driver_factory: Optional[DriverScenarioFactory] = None,
+    ) -> MonteCarloResult:
         if n_runs <= 0:
             raise ValueError("n_runs must be positive")
 
@@ -1100,6 +1358,12 @@ class MonteCarloRunner:
                 horizon=self.engine.config.horizon_quarters,
                 spec=spec,
             )
+            if driver_factory is not None:
+                driver_scenario = driver_factory.make(
+                    name=f"{name_prefix}_{i+1}_drivers",
+                    horizon=self.engine.config.horizon_quarters,
+                )
+                scenario = replace(scenario, driver_scenario=driver_scenario)
             results.append(self.engine.run(scenario))
         return MonteCarloResult(path_results=results, summary=self._summarize(results))
 
