@@ -13,7 +13,9 @@ COPY requirements_test.txt /tmp/requirements_test.txt
 RUN python -m pip install --upgrade pip \
     && python -m pip install --no-cache-dir -r /tmp/requirements_test.txt
 
+COPY monte_carlo/__init__.py /app/monte_carlo/__init__.py
 COPY monte_carlo/mc_cashflow_engine.py /app/monte_carlo/mc_cashflow_engine.py
+COPY monte_carlo/mc_stochastic_drivers.py /app/monte_carlo/mc_stochastic_drivers.py
 COPY tests /app/tests
 
 CMD ["python", "-m", "pytest", "tests", "-v", "--junitxml=/artifacts/test-results.xml"]
