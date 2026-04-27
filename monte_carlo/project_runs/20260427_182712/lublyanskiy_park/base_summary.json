@@ -1,0 +1,23 @@
+{
+  "project_name": "Люблинский парк",
+  "scenario_name": "base",
+  "total_revenue": 56411969329.057076,
+  "total_costs_excl_financing": 80600446466.45285,
+  "total_interest_and_fees": 8283532208.294381,
+  "total_debt_service_for_ratio": 53564370862.60422,
+  "total_cfads": -24188477137.39578,
+  "total_net_cash_flow": 4.231929779052734e-06,
+  "ending_escrow_balance": 0.0,
+  "ending_project_cash_balance": 0.0,
+  "peak_debt": 69977563200.0,
+  "ending_debt": 24696724545.690163,
+  "min_dscr": 1.2095793481624113,
+  "min_iscr": 41.69943817244137,
+  "max_liquidity_shortfall": 9773427333.858206,
+  "final_effective_rate_annual": 0.0607339896856093,
+  "collateral_value_net": 88726884966.72,
+  "collateral_coverage_ratio": 1.1337291473346336,
+  "repaid_at_rvz": true,
+  "debt_fully_repaid": false,
+  "driver_summary": {}
+}
