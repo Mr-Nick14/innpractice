@@ -1,0 +1,13 @@
+{
+  "project_id": "0ff721b00c516c6802c1f7a7deacc795",
+  "project_name": "Люблинский парк",
+  "region_key": "Moscow",
+  "deals_path": "C:\\proga\\gazprom_tex\\old_vers\\cashflow_project\\data\\geo_enriched\\deals_with_real_geo_Moscow.parquet",
+  "artifacts_dir": "C:\\proga\\gazprom_tex\\cashflow\\monte_carlo\\model_artifacts",
+  "market_mode": "stochastic",
+  "seed": 42,
+  "mc_runs": 50,
+  "used_stub_sales": false,
+  "output_dir": "cashflow\\monte_carlo\\project_runs\\20260427_182712",
+  "case_dir": "cashflow\\monte_carlo\\project_runs\\20260427_182712\\lublyanskiy_park"
+}

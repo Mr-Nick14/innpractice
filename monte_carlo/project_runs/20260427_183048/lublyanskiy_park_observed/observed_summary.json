@@ -1,0 +1,23 @@
+{
+  "project_id": "0ff721b00c516c6802c1f7a7deacc795",
+  "project_name": "Люблинский парк",
+  "region_key": "Moscow",
+  "window_start": "2016Q2",
+  "window_end": "2019Q1",
+  "window_rows": 889,
+  "window_unique_lots": 889,
+  "window_total_revenue": 5517795664.621,
+  "window_total_area_sqm": 43468.9,
+  "window_weighted_avg_price_sqm": 126936.6297426666,
+  "window_avg_price_sqm": 129521.36154105737,
+  "window_median_price_sqm": 128800.0,
+  "engine_total_revenue": 5517795664.620999,
+  "engine_peak_debt": 69977563200.0,
+  "engine_ending_debt": 69977563200.0,
+  "engine_min_dscr": 1.3560444231012716,
+  "engine_ending_cash": -29453682989.119595,
+  "engine_final_effective_rate_annual": 0.24358925987973612,
+  "engine_max_liquidity_shortfall": 30877575978.235233,
+  "engine_repaid_at_rvz": false,
+  "engine_debt_fully_repaid": false
+}
