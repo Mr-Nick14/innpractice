@@ -1,0 +1,44 @@
+---
+version: 2
+
+plan:
+  project-key: CASH
+  key: MC
+  name: Monte Carlo Cashflow CI
+
+stages:
+  - Build and test:
+      jobs:
+        - Docker pytest
+
+Docker pytest:
+  docker:
+    image: python:3.12-slim
+  tasks:
+    - clean
+    - checkout
+    - script:
+        interpreter: /bin/sh
+        scripts:
+          - python3 -m pip install --upgrade pip
+          - python3 -m pip install --no-cache-dir -r requirements_test.txt
+          - sh scripts/run_tests.sh
+  final-tasks:
+    - test-parser:
+        type: junit
+        test-results:
+          - artifacts/test-reports/*.xml
+  artifacts:
+    - name: JUnit test report
+      location: artifacts/test-reports
+      pattern: '*.xml'
+      required: false
+
+branches:
+  create: for-pull-request
+  delete:
+    after-deleted-days: 7
+    after-inactive-days: 30
+
+triggers:
+  - polling: 180

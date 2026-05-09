@@ -6,7 +6,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-RUN mkdir -p /app/monte_carlo /app/tests /artifacts
+RUN mkdir -p /app/monte_carlo /app/tests /app/scripts /app/artifacts/test-reports
 
 COPY requirements_test.txt /tmp/requirements_test.txt
 
@@ -17,5 +17,6 @@ COPY monte_carlo/__init__.py /app/monte_carlo/__init__.py
 COPY monte_carlo/mc_cashflow_engine.py /app/monte_carlo/mc_cashflow_engine.py
 COPY monte_carlo/mc_stochastic_drivers.py /app/monte_carlo/mc_stochastic_drivers.py
 COPY tests /app/tests
+COPY scripts/run_tests.sh /app/scripts/run_tests.sh
 
-CMD ["python", "-m", "pytest", "tests", "-v", "--junitxml=/artifacts/test-results.xml"]
+CMD ["sh", "scripts/run_tests.sh"]
